@@ -5,8 +5,8 @@ metadata:
   namespace: ssle-project
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 1Gi
-  storageClassName: standard
+  storageClassName: local-path

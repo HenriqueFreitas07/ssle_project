@@ -1,1 +1,6 @@
 *.db
+*.pdf
+venv/
+__pycache__/
+*.pyc
+.claude/

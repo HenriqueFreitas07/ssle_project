@@ -196,7 +196,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard
+  storageClassName: local-path
 
 ---
 apiVersion: apps/v1
@@ -278,8 +278,9 @@ spec:
   - protocol: TCP
     port: 9090
     targetPort: 9090
+    nodePort: 30090
     name: http
-  type: ClusterIP
+  type: NodePort
 
 ---
 # Node Exporter DaemonSet - runs on service nodes
