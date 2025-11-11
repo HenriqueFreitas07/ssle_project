@@ -59,6 +59,17 @@ spec:
           value: "MyS3cr37P450r.*-"
         - name: OPENSEARCH_HOSTS
           value: "http://wazuh-indexer:9200"
+        command: ["/bin/bash"]
+        args:
+          - "-c"
+          - |
+            #!/bin/bash
+            # Override the configuration to use our indexer service
+            sed -i 's/wazuh\.indexer/wazuh-indexer/g' /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+            sed -i 's/https:/http:/g' /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+            sed -i 's/server.ssl.enabled: true/server.ssl.enabled: false/g' /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+            # Start the dashboard
+            /entrypoint.sh opensearch-dashboards
         resources:
           requests:
             memory: "512Mi"
