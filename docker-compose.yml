@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  registry_service:
+    build:
+      context: ./src/ssle_project/registry_service
+    ports:
+      - '8000:8000'
+    env_file:
+      - ./src/ssle_project/registry_service/.env
+
+  analytics_service:
+    build:
+      context: ./src/ssle_project/analytics_service
+    env_file:
+      - ./src/ssle_project/analytics_service/.env
+
+  storage_service:
+    build:
+      context: ./src/ssle_project/storage_service
+    env_file:
+      - ./src/ssle_project/storage_service/.env
+
+  temperature_service:
+    build:
+      context: ./src/ssle_project/temperature_service
+    env_file:
+      - ./src/ssle_project/temperature_service/.env
+

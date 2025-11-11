@@ -1,0 +1,19 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+
+# Poetry
+poetry.lock
+pyproject.toml
+
+# Docker
+Dockerfile
+
