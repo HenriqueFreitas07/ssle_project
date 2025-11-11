@@ -10,7 +10,7 @@ data:
   WAZUH_PROTOCOL: "tcp"
   WAZUH_REGISTRATION_SERVER: "wazuh-manager.wazuh.svc.cluster.local"
   WAZUH_REGISTRATION_PORT: "1515"
-  WAZUH_REGISTRATION_PASSWORD: "please-change-me"  # Change this in production!
+  WAZUH_REGISTRATION_PASSWORD: "MyS3cr37P450r.*-"
   WAZUH_AGENT_NAME: "ssle-k8s-node"
 
 ---
