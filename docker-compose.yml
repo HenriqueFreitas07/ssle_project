@@ -1,29 +1,96 @@
-version: '3.8'
-
 services:
   registry_service:
     build:
       context: ./src/ssle_project/registry_service
+    container_name: registry-service
     ports:
-      - '8000:8000'
+      - '5050:5050'
     env_file:
       - ./src/ssle_project/registry_service/.env
-
-  analytics_service:
-    build:
-      context: ./src/ssle_project/analytics_service
-    env_file:
-      - ./src/ssle_project/analytics_service/.env
+    networks:
+      - ssle-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5050/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   storage_service:
     build:
       context: ./src/ssle_project/storage_service
+    container_name: storage-service
+    ports:
+      - '5002:5002'
     env_file:
       - ./src/ssle_project/storage_service/.env
+    networks:
+      - ssle-network
+    volumes:
+      - storage-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  ingestion_service:
+    build:
+      context: ./src/ssle_project/ingestion_service
+    container_name: ingestion-service
+    ports:
+      - '5001:5001'
+    env_file:
+      - ./src/ssle_project/ingestion_service/.env
+    networks:
+      - ssle-network
+    depends_on:
+      - registry_service
+      - storage_service
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  analytics_service:
+    build:
+      context: ./src/ssle_project/analytics_service
+    container_name: analytics-service
+    ports:
+      - '5003:5003'
+    env_file:
+      - ./src/ssle_project/analytics_service/.env
+    networks:
+      - ssle-network
+    volumes:
+      - storage-data:/app/data
+    depends_on:
+      - storage_service
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5003/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   temperature_service:
     build:
       context: ./src/ssle_project/temperature_service
+    container_name: temperature-service
     env_file:
       - ./src/ssle_project/temperature_service/.env
+    networks:
+      - ssle-network
+    depends_on:
+      - ingestion_service
+
+networks:
+  ssle-network:
+    driver: bridge
+
+volumes:
+  storage-data:
 

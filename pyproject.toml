@@ -6,11 +6,12 @@ authors = [
     {name = "HenriqueFreitas07",email = "henriquefreitasm87@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "python-dotenv (>=1.2.1,<2.0.0)",
     "kafka-python (>=2.2.15,<3.0.0)",
-    "flask (>=3.1.2,<4.0.0)"
+    "flask (>=3.1.2,<4.0.0)",
+    "requests (>=2.32.5,<3.0.0)"
 ]
 
 [tool.poetry]
