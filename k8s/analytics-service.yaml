@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: ssle-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+    spec:
+      # Schedule on service nodes
+      nodeSelector:
+        node-role: services
+      containers:
+      - name: analytics-service
+        image: ssle_project-analytics_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5003
+        envFrom:
+        - configMapRef:
+            name: analytics-service-config
+        volumeMounts:
+        - name: storage-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5003
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5003
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: storage-data
+        persistentVolumeClaim:
+          claimName: storage-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: ssle-project
+spec:
+  selector:
+    app: analytics-service
+  ports:
+  - protocol: TCP
+    port: 5003
+    targetPort: 5003
+  type: ClusterIP

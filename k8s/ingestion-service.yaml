@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  namespace: ssle-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingestion-service
+  template:
+    metadata:
+      labels:
+        app: ingestion-service
+    spec:
+      # Schedule on service nodes
+      nodeSelector:
+        node-role: services
+      containers:
+      - name: ingestion-service
+        image: ssle_project-ingestion_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5001
+        envFrom:
+        - configMapRef:
+            name: ingestion-service-config
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-service
+  namespace: ssle-project
+spec:
+  selector:
+    app: ingestion-service
+  ports:
+  - protocol: TCP
+    port: 5001
+    targetPort: 5001
+  type: ClusterIP

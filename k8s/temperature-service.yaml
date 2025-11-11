@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temperature-service
+  namespace: ssle-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temperature-service
+  template:
+    metadata:
+      labels:
+        app: temperature-service
+    spec:
+      # Schedule on service nodes
+      nodeSelector:
+        node-role: services
+      containers:
+      - name: temperature-service
+        image: ssle_project-temperature_service:latest
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: temperature-service-config
