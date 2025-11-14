@@ -233,13 +233,17 @@ cat "$PROJECT_DIR/k8s/wazuh-dashboard.yaml" | incus exec k3s-master -- bash -c '
 # ==============================================
 # STEP 10: Deploy All Services
 # ==============================================
-log_info "[10/10] Deploying all services..."
+log_info "[10/10] Deploying all services and labeling nodes ..."
 
 # Deploy microservices
 for service in registry-service storage-service ingestion-service analytics-service temperature-service; do
     log_info "Deploying $service..."
     cat "$PROJECT_DIR/k8s/${service}.yaml" | incus exec k3s-master -- bash -c "cat > /root/${service}.yaml && k3s kubectl apply -f /root/${service}.yaml"
 done
+
+log_info "Labeling Worker nodes "
+k3s kubectl label node k3s-node1 node-role=services --overwrite
+k3s kubectl label node k3s-node2 node-role=services --overwrite
 
 
 echo "✓ All services deployed"
