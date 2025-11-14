@@ -197,21 +197,7 @@ echo ""
 # ==============================================
 log_info "[8/10] Deploying namespace and configmaps..."
 
-incus exec k3s-master -- bash << 'EOF'
-cat > /root/namespace.yaml << 'EOFNS'
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ssle-project
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: monitoring
-EOFNS
-
-k3s kubectl apply -f /root/namespace.yaml
-EOF
+cat "$PROJECT_DIR/k8s/namespace.yaml" | incus exec k3s-master -- bash -c 'cat > /root/namespace.yaml && k3s kubectl apply -f /root/namespace.yaml'
 
 # Copy and apply configmaps
 cat "$PROJECT_DIR/k8s/configmaps.yaml" | incus exec k3s-master -- bash -c 'cat > /root/configmaps.yaml && k3s kubectl apply -f /root/configmaps.yaml'
@@ -222,47 +208,27 @@ echo ""
 # ==============================================
 # STEP 9: Deploy Storage PVCs
 # ==============================================
-log_info "[9/10] Deploying Persistent Volume Claims..."
+log_info "Deploying Prometheus and PVC..."
+cat "$PROJECT_DIR/k8s/prometheus.yaml" | incus exec k3s-master -- bash -c 'cat > /root/prometheus.yaml && k3s kubectl apply -f /root/prometheus.yaml'
 
-incus exec k3s-master -- bash << 'EOF'
-# Storage PVC for services
-cat > /root/storage-pvc.yaml << 'EOFPVC'
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: storage-data-pvc
-  namespace: ssle-project
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: local-path
-EOFPVC
+log_info "Deploying Storage PVC..." 
+cat "$PROJECT_DIR/k8s/storage-pvc.yaml" | incus exec k3s-master -- bash -c 'cat > /root/storage-pvc.yaml && k3s kubectl apply -f /root/storage-pvc.yaml'
 
-# Prometheus PVC
-cat > /root/prometheus-pvc.yaml << 'EOFPVC2'
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: prometheus-data-pvc
-  namespace: monitoring
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
-  storageClassName: local-path
-EOFPVC2
+log_info "Deploying Grafana..."
+cat "$PROJECT_DIR/k8s/grafana.yaml" | incus exec k3s-master -- bash -c 'cat > /root/grafana.yaml && k3s kubectl apply -f /root/grafana.yaml'
 
-k3s kubectl apply -f /root/storage-pvc.yaml
-k3s kubectl apply -f /root/prometheus-pvc.yaml
-EOF
+log_info "Deploying Wazuh ..."
+cat "$PROJECT_DIR/k8s/wazuh-namespace.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-namespace.yaml && k3s kubectl apply -f /root/wazuh-namespace.yaml'
 
-echo "✓ PVCs created"
-echo ""
+log_info "Deploying Wazuh Manager..."
+cat "$PROJECT_DIR/k8s/wazuh-manager.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-manager.yaml && k3s kubectl apply -f /root/wazuh-manager.yaml'
+
+log_info "Deploying Wazuh indexer..."
+cat "$PROJECT_DIR/k8s/wazuh-elasticsearch.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-elasticsearch.yaml && k3s kubectl apply -f /root/wazuh-elasticsearch.yaml'
+
+log_info "Deploying Wazuh Dashboard..."
+cat "$PROJECT_DIR/k8s/wazuh-dashboard.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-dashboard.yaml && k3s kubectl apply -f /root/wazuh-dashboard.yaml'
+
 
 # ==============================================
 # STEP 10: Deploy All Services
@@ -275,9 +241,6 @@ for service in registry-service storage-service ingestion-service analytics-serv
     cat "$PROJECT_DIR/k8s/${service}.yaml" | incus exec k3s-master -- bash -c "cat > /root/${service}.yaml && k3s kubectl apply -f /root/${service}.yaml"
 done
 
-# Deploy monitoring
-log_info "Deploying Prometheus..."
-cat "$PROJECT_DIR/k8s/prometheus.yaml" | incus exec k3s-master -- bash -c 'cat > /root/prometheus.yaml && k3s kubectl apply -f /root/prometheus.yaml'
 
 echo "✓ All services deployed"
 echo ""
