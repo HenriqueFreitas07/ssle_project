@@ -1,0 +1,336 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wazuh-manager-data
+  namespace: wazuh
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-manager-config
+  namespace: wazuh
+data:
+  ossec.conf: |
+    <ossec_config>
+      <global>
+        <jsonout_output>yes</jsonout_output>
+        <alerts_log>yes</alerts_log>
+        <logall>no</logall>
+        <logall_json>no</logall_json>
+        <email_notification>no</email_notification>
+        <smtp_server>smtp.example.wazuh.com</smtp_server>
+        <email_from>wazuh@example.wazuh.com</email_from>
+        <email_to>recipient@example.wazuh.com</email_to>
+        <email_maxperhour>12</email_maxperhour>
+        <email_log_source>alerts.log</email_log_source>
+      </global>
+
+      <alerts>
+        <log_alert_level>3</log_alert_level>
+        <email_alert_level>12</email_alert_level>
+      </alerts>
+
+      <remote>
+        <connection>secure</connection>
+        <port>1514</port>
+        <protocol>tcp</protocol>
+        <queue_size>131072</queue_size>
+      </remote>
+
+      <auth>
+        <disabled>no</disabled>
+        <port>1515</port>
+        <use_source_ip>no</use_source_ip>
+        <purge>yes</purge>
+        <use_password>yes</use_password>
+        <ciphers>HIGH:!ADH:!EXP:!MD5:!RC4:!3DES:!CAMELLIA:@STRENGTH</ciphers>
+        <ssl_agent_ca></ssl_agent_ca>
+        <ssl_verify_host>no</ssl_verify_host>
+        <ssl_manager_cert>/var/ossec/etc/sslmanager.cert</ssl_manager_cert>
+        <ssl_manager_key>/var/ossec/etc/sslmanager.key</ssl_manager_key>
+        <ssl_auto_negotiate>no</ssl_auto_negotiate>
+      </auth>
+
+      <cluster>
+        <name>wazuh</name>
+        <node_name>master-node</node_name>
+        <node_type>master</node_type>
+        <key>c98b62a9b6169ac5f67dae55ae4a9088</key>
+        <port>1516</port>
+        <bind_addr>0.0.0.0</bind_addr>
+        <nodes>
+          <node>wazuh-manager</node>
+        </nodes>
+        <hidden>no</hidden>
+        <disabled>yes</disabled>
+      </cluster>
+
+      <indexer>
+        <enabled>yes</enabled>
+        <hosts>
+          <host>https://wazuh-elasticsearch:9200</host>
+        </hosts>
+        <ssl>
+          <certificate_authorities>
+            <ca>/etc/ssl/root-ca.pem</ca>
+          </certificate_authorities>
+          <certificate>/etc/ssl/filebeat.pem</certificate>
+          <key>/etc/ssl/filebeat.key</key>
+        </ssl>
+      </indexer>
+
+      <vulnerability-detection>
+        <enabled>yes</enabled>
+        <index-status>yes</index-status>
+        <feed-update-interval>60m</feed-update-interval>
+      </vulnerability-detection>
+
+      <ruleset>
+        <decoder_dir>ruleset/decoders</decoder_dir>
+        <rule_dir>ruleset/rules</rule_dir>
+        <rule_exclude>0215-policy_rules.xml</rule_exclude>
+        <list>etc/lists/audit-keys</list>
+        <list>etc/lists/amazon/aws-eventnames</list>
+        <list>etc/lists/security-eventchannel</list>
+      </ruleset>
+
+      <rule_test>
+        <enabled>yes</enabled>
+        <threads>1</threads>
+        <max_sessions>64</max_sessions>
+        <session_timeout>15m</session_timeout>
+      </rule_test>
+
+      <sca>
+        <enabled>yes</enabled>
+        <scan_on_start>yes</scan_on_start>
+        <interval>12h</interval>
+        <skip_nfs>yes</skip_nfs>
+      </sca>
+
+      <rootcheck>
+        <disabled>no</disabled>
+        <check_files>yes</check_files>
+        <check_trojans>yes</check_trojans>
+        <check_dev>yes</check_dev>
+        <check_sys>yes</check_sys>
+        <check_pids>yes</check_pids>
+        <check_ports>yes</check_ports>
+        <check_if>yes</check_if>
+        <frequency>43200</frequency>
+        <rootkit_files>etc/shared/rootkit_files.txt</rootkit_files>
+        <rootkit_trojans>etc/shared/rootkit_trojans.txt</rootkit_trojans>
+        <skip_nfs>yes</skip_nfs>
+      </rootcheck>
+
+      <wodle name="open-scap">
+        <disabled>yes</disabled>
+        <timeout>1800</timeout>
+        <interval>1d</interval>
+        <scan-on-start>yes</scan-on-start>
+      </wodle>
+
+      <wodle name="cis-cat">
+        <disabled>yes</disabled>
+        <timeout>1800</timeout>
+        <interval>1d</interval>
+        <scan-on-start>yes</scan-on-start>
+        <java_path>wodles/java</java_path>
+        <ciscat_path>wodles/ciscat</ciscat_path>
+      </wodle>
+
+      <wodle name="osquery">
+        <disabled>yes</disabled>
+        <run_daemon>yes</run_daemon>
+        <log_path>/var/log/osquery/osqueryd.results.log</log_path>
+        <config_path>/etc/osquery/osquery.conf</config_path>
+        <add_labels>yes</add_labels>
+      </wodle>
+
+      <wodle name="syscollector">
+        <disabled>no</disabled>
+        <interval>1h</interval>
+        <scan_on_start>yes</scan_on_start>
+        <hardware>yes</hardware>
+        <os>yes</os>
+        <network>yes</network>
+        <packages>yes</packages>
+        <ports all="no">yes</ports>
+        <processes>yes</processes>
+      </wodle>
+
+      <syscheck>
+        <disabled>no</disabled>
+        <frequency>43200</frequency>
+        <scan_on_start>yes</scan_on_start>
+        <directories check_all="yes">/etc,/usr/bin,/usr/sbin</directories>
+        <directories check_all="yes">/bin,/sbin,/boot</directories>
+        <ignore>/etc/mtab</ignore>
+        <ignore>/etc/hosts.deny</ignore>
+        <ignore>/etc/mail/statistics</ignore>
+        <ignore>/etc/random-seed</ignore>
+        <ignore>/etc/random.seed</ignore>
+        <ignore>/etc/adjtime</ignore>
+        <ignore>/etc/httpd/logs</ignore>
+        <ignore>/etc/utmpx</ignore>
+        <ignore>/etc/wtmpx</ignore>
+        <ignore>/etc/cups/certs</ignore>
+        <ignore>/etc/dumpdates</ignore>
+        <ignore>/etc/svc/volatile</ignore>
+        <skip_nfs>yes</skip_nfs>
+        <skip_dev>yes</skip_dev>
+        <skip_proc>yes</skip_proc>
+        <skip_sys>yes</skip_sys>
+        <process_priority>10</process_priority>
+        <synchronization>
+          <enabled>yes</enabled>
+          <interval>5m</interval>
+          <max_interval>1h</max_interval>
+          <max_eps>10</max_eps>
+        </synchronization>
+      </syscheck>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/var/ossec/logs/active-responses.log</location>
+      </localfile>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/var/log/messages</location>
+      </localfile>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/var/log/secure</location>
+      </localfile>
+
+      <localfile>
+        <log_format>syslog</log_format>
+        <location>/var/log/maillog</location>
+      </localfile>
+
+    </ossec_config>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wazuh-manager
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wazuh-manager
+  template:
+    metadata:
+      labels:
+        app: wazuh-manager
+    spec:
+      nodeSelector:
+        node-role: services
+      containers:
+      - name: wazuh-manager
+        image: wazuh/wazuh-manager:4.7.0
+        ports:
+        - containerPort: 1514
+          name: agents-events
+          protocol: TCP
+        - containerPort: 1515
+          name: agents-reg
+          protocol: TCP
+        - containerPort: 1516
+          name: cluster
+          protocol: TCP
+        - containerPort: 55000
+          name: api
+          protocol: TCP
+        env:
+        - name: INDEXER_URL
+          value: "https://wazuh-elasticsearch:9200"
+        - name: INDEXER_USERNAME
+          value: "admin"
+        - name: INDEXER_PASSWORD
+          value: "admin"
+        - name: FILEBEAT_SSL_VERIFICATION_MODE
+          value: "none"
+        - name: SSL_CERTIFICATE_AUTHORITIES
+          value: ""
+        - name: SSL_CERTIFICATE
+          value: ""
+        - name: SSL_KEY
+          value: ""
+        - name: API_USERNAME
+          value: "wazuh-wui"
+        - name: API_PASSWORD
+          value: "MyS3cr37P450r.*-"
+        volumeMounts:
+        - name: data
+          mountPath: /var/ossec/data
+        - name: etc
+          mountPath: /var/ossec/etc
+        - name: logs
+          mountPath: /var/ossec/logs
+        - name: queue
+          mountPath: /var/ossec/queue
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: wazuh-manager-data
+      - name: etc
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      - name: queue
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  type: NodePort
+  selector:
+    app: wazuh-manager
+  ports:
+  - name: agents-events
+    port: 1514
+    targetPort: 1514
+    nodePort: 31514
+    protocol: TCP
+  - name: agents-reg
+    port: 1515
+    targetPort: 1515
+    nodePort: 31515
+    protocol: TCP
+  - name: cluster
+    port: 1516
+    targetPort: 1516
+    protocol: TCP
+  - name: api
+    port: 55000
+    targetPort: 55000
+    nodePort: 30555
+    protocol: TCP

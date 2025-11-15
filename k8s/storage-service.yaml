@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-service
+  namespace: ssle-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storage-service
+  template:
+    metadata:
+      labels:
+        app: storage-service
+    spec:
+      # Schedule on service nodes
+      nodeSelector:
+        node-role: services
+      containers:
+      - name: storage-service
+        image: ssle_project-storage_service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5002
+        envFrom:
+        - configMapRef:
+            name: storage-service-config
+        volumeMounts:
+        - name: storage-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5002
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5002
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: storage-data
+        persistentVolumeClaim:
+          claimName: storage-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-service
+  namespace: ssle-project
+spec:
+  selector:
+    app: storage-service
+  ports:
+  - protocol: TCP
+    port: 5002
+    targetPort: 5002
+    nodePort: 30002
+  type: NodePort

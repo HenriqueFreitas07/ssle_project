@@ -1,0 +1,115 @@
+---
+apiversion: v1
+kind: persistentvolumeclaim
+metadata:
+  name: wazuh-elasticsearch-data
+  namespace: wazuh
+spec:
+  accessmodes:
+    - readwriteonce
+  resources:
+    requests:
+      storage: 10gi
+
+---
+apiversion: v1
+kind: configmap
+metadata:
+  name: wazuh-indexer-config
+  namespace: wazuh
+data:
+  opensearch.yml: |
+    network.host: "0.0.0.0"
+    node.name: "wazuh-indexer"
+    cluster.name: "wazuh-cluster"
+    discovery.type: "single-node"
+    bootstrap.memory_lock: true
+    plugins.security.disabled: true
+    plugins.security.ssl.transport.enabled: false
+    plugins.security.ssl.http.enabled: false
+    compatibility.override_main_response_version: true
+
+---
+apiversion: apps/v1
+kind: statefulset
+metadata:
+  name: wazuh-indexer
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  servicename: wazuh-indexer
+  replicas: 1
+  selector:
+    matchlabels:
+      app: wazuh-indexer
+  template:
+    metadata:
+      labels:
+        app: wazuh-indexer
+    spec:
+      nodeselector:
+        node-role: services
+      initcontainers:
+      - name: increase-vm-max-map
+        image: busybox:1.36
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securitycontext:
+          privileged: true
+      containers:
+      - name: wazuh-indexer
+        image: opensearchproject/opensearch:2.8.0
+        env:
+        - name: opensearch_java_opts
+          value: "-xms1g -xmx1g"
+        - name: discovery.type
+          value: "single-node"
+        - name: disable_install_demo_config
+          value: "true"
+        - name: disable_security_plugin
+          value: "true"
+        ports:
+        - containerport: 9200
+          name: http
+        - containerport: 9300
+          name: transport
+        volumemounts:
+        - name: data
+          mountpath: /var/lib/wazuh-indexer
+        - name: config
+          mountpath: /usr/share/wazuh-indexer/config/opensearch.yml
+          subpath: opensearch.yml
+        resources:
+          requests:
+            memory: "2gi"
+            cpu: "500m"
+          limits:
+            memory: "4gi"
+            cpu: "2000m"
+      volumes:
+      - name: data
+        persistentvolumeclaim:
+          claimname: wazuh-elasticsearch-data
+      - name: config
+        configmap:
+          name: wazuh-indexer-config
+
+---
+apiversion: v1
+kind: service
+metadata:
+  name: wazuh-indexer
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  selector:
+    app: wazuh-indexer
+  ports:
+  - name: http
+    port: 9200
+    targetport: 9200
+  - name: transport
+    port: 9300
+    targetport: 9300
+  clusterip: none
