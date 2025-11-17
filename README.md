@@ -25,6 +25,7 @@ Host Machine
                                   ├─── Node Exporter
                                   └─── Grafana
 ```
+![architecture diagram](./ssle_architecture.png) 
 
 ## Prerequisites
 
