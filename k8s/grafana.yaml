@@ -294,6 +294,9 @@ spec:
       labels:
         app: grafana
     spec:
+      # Run on monitoring node (same as Prometheus)
+      nodeSelector:
+        node-role: monitoring
       securityContext:
         fsGroup: 472
         runAsUser: 472

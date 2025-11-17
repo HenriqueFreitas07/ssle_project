@@ -4,10 +4,11 @@ import time
 import random
 import os
 from dotenv import load_dotenv
+import uuid
 
 load_dotenv()
 
-DEVICE_ID = "sensor-001"
+DEVICE_ID = "sensor-"+str(uuid.uuid4())
 INGESTION_SERVICE_URL = os.getenv("INGESTION_SERVICE_URL")
 
 def send_temp():

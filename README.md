@@ -25,6 +25,7 @@ Host Machine
                                   ├─── Node Exporter
                                   └─── Grafana
 ```
+![architecture diagram](./ssle_architecture.png) 
 
 ## Prerequisites
 
@@ -58,26 +59,10 @@ This script will:
 5. Import images into K3s nodes
 6. Deploy all Kubernetes resources
 7. Start Prometheus and Grafana monitoring
+8. Start Wazuh installation Components
+9. Install Wazuh agents on worker nodes
 
-**Setup time:** ~5-10 minutes
-
-### 3. Access Your Services
-
-After setup completes, get the node IPs:
-
-```bash
-incus list k3s-master k3s-node1 k3s-node2 -c n,4
-```
-
-**Microservices** (exposed via NodePort):
-- Registry: `http://<node-ip>:30050`
-- Storage: `http://<node-ip>:30002`
-- Ingestion: `http://<node-ip>:30001`
-- Analytics: `http://<node-ip>:30003`
-
-**Monitoring**:
-- Prometheus: `http://<node-ip>:30090`
-- Grafana: `http://<node-ip>:30300` (admin/admin)
+**Setup time:** ~3-9 minutes
 
 ## Project Structure
 
@@ -140,7 +125,7 @@ incus exec k3s-master -- k3s kubectl get svc -n ssle-project
 ### Service Health
 
 ```bash
-# Test service health (replace <node-ip> with actual IP)
+# Test service health (replace <node-ip> with actual IP, it can be any of the nodes of the cluster since it is running with k8s)
 curl http://<node-ip>:30050/health  # Registry
 curl http://<node-ip>:30002/health  # Storage
 curl http://<node-ip>:30001/health  # Ingestion
@@ -190,7 +175,7 @@ The setup automatically provisions a dashboard for monitoring the service nodes:
 - Disk usage
 - Load averages
 
-Access at: `http://<node-ip>:30300/d/ssle-nodes`
+Access at: `http://<node-ip>:30300/
 
 ## Cleanup
 
@@ -207,27 +192,6 @@ incus profile delete k3s
 docker-compose down --rmi all
 ```
 
-## Troubleshooting
-
-### Pods stuck in Pending
-
-Check node labels:
-```bash
-incus exec k3s-master -- k3s kubectl get nodes --show-labels
-```
-
-Add missing labels:
-```bash
-incus exec k3s-master -- k3s kubectl label nodes k3s-node1 k3s-node2 node-role=services
-```
-
-### Images not found (ErrImageNeverPull)
-
-Re-import images:
-```bash
-# Run the image import section of setup-complete-cluster.sh
-```
-
 ### Service not accessible from host
 
 Check NodePort services:
@@ -240,23 +204,17 @@ Verify node IPs:
 incus list -c n,4
 ```
 
-### Grafana shows no data
-
-1. Check Prometheus is collecting metrics:
-   ```bash
-   curl http://<node-ip>:30090/api/v1/targets
-   ```
-
-2. Verify node-exporter is running:
-   ```bash
-   incus exec k3s-master -- k3s kubectl get pods -n monitoring -l app=node-exporter
-   ```
-
-3. Check datasource in Grafana UI (Configuration → Data Sources)
-
 ## Network Details
 
 - **Incus Bridge**: 10.10.10.0/24
 - **K3s Pod Network**: 10.42.0.0/16 (Flannel)
 - **K3s Service Network**: 10.43.0.0/16 (ClusterIP)
 - **NodePort Range**: 30000-32767
+
+## IP Table Update
+
+Since this is suppose to build docker images, incus and docker are expected to be installed. But since docker overwrites some nat iptable rules that block incus bridge network interface traffic, a script was built to give priority to traffic coming from and into incus. Since docker was only used to build these images, and no container was running during the development of this project, there is no way to describe the behaviour of docker networking capabilities during and after the script has been executed. 
+
+```bash
+sudo ./incus-network-fix.sh
+```
