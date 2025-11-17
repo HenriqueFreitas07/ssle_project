@@ -143,146 +143,68 @@ incus exec k3s-master -- k3s kubectl label nodes k3s-node2 node-role=services --
 echo "✓ Nodes labeled"
 echo ""
 
-log_info "[11/12] Installing Wazuh Manager on k3s-master..."
+log_info "[11/12] Installing Wazuh in separate container..."
 
-incus exec k3s-master -- bash -c '
-# Update and install prerequisites
-apt update
-apt install -y curl apt-transport-https lsb-release gnupg
+# Delete if exists
+incus delete -f wazuh-container 2>/dev/null || true
 
-# Add Wazuh repository
-curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
-chmod 644 /usr/share/keyrings/wazuh.gpg
-echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee -a /etc/apt/sources.list.d/wazuh.list
-
-# Update package list
-apt update
-'
-
-log_info "Installing Wazuh indexer..."
-incus exec k3s-master -- bash -c '
-# Install Wazuh indexer
-apt install -y wazuh-indexer
-
-# Configure indexer for single node
-cat > /etc/wazuh-indexer/opensearch.yml <<EOF
-network.host: "0.0.0.0"
-node.name: "wazuh-indexer"
-cluster.name: "wazuh-cluster"
-discovery.type: "single-node"
-plugins.security.disabled: true
-EOF
-
-# Start and enable indexer
-systemctl daemon-reload
-systemctl enable wazuh-indexer
-systemctl start wazuh-indexer
-
-# Wait for indexer to start
+log_info "Creating Wazuh container..."
+incus launch images:ubuntu/22.04 wazuh-container
 sleep 10
+
+log_info "Installing Wazuh using automated installer..."
+incus exec wazuh-container -- bash -c '
+# Update and install curl
+apt update
+apt install -y curl
+
+# Download Wazuh installation script
+curl -sO https://packages.wazuh.com/4.13/wazuh-install.sh
+chmod +x wazuh-install.sh
+
+# Run all-in-one installation
+./wazuh-install.sh -a -i
 '
 
-log_info "Installing Wazuh manager..."
-incus exec k3s-master -- bash -c '
-# Install Wazuh manager
-apt install -y wazuh-manager
+log_info "Wazuh installation complete!"
+log_info "Extracting admin credentials..."
 
-# Start and enable manager
-systemctl daemon-reload
-systemctl enable wazuh-manager
-systemctl start wazuh-manager
-
-# Wait for manager to start
-sleep 5
-'
-
-# Deploy custom ossec.conf if it exists
-if [ -f "$PROJECT_DIR/wazuh-config/ossec.conf" ]; then
-    log_info "Deploying custom ossec.conf..."
-    cat "$PROJECT_DIR/wazuh-config/ossec.conf" | incus exec k3s-master -- bash -c 'cat > /var/ossec/etc/ossec.conf'
-    incus exec k3s-master -- systemctl restart wazuh-manager
-    log_info "Custom ossec.conf deployed and manager restarted"
-else
-    log_info "No custom ossec.conf found, using default configuration"
+# Get the admin password - it's displayed during installation
+# Extract it from the wazuh-install-files.tar
+WAZUH_PASSWORD=$(incus exec wazuh-container -- bash -c '
+if [ -f wazuh-install-files.tar ]; then
+    tar -xf wazuh-install-files.tar 2>/dev/null
 fi
-
-# Deploy custom agent.conf if it exists
-if [ -f "$PROJECT_DIR/wazuh-config/agent.conf" ]; then
-    log_info "Deploying custom agent.conf..."
-    cat "$PROJECT_DIR/wazuh-config/agent.conf" | incus exec k3s-master -- bash -c 'cat > /var/ossec/etc/shared/default/agent.conf'
-    log_info "Custom agent.conf deployed"
-else
-    log_info "No custom agent.conf found, using default configuration"
+if [ -f wazuh-install-files/wazuh-passwords.txt ]; then
+    grep -A 1 "indexer_username: '\''admin'\''" wazuh-install-files/wazuh-passwords.txt | grep "indexer_password:" | head -1 | sed "s/.*indexer_password: '\''\(.*\)'\''/\1/"
 fi
+' || echo "CHECK_CONTAINER")
 
-log_info "Installing Filebeat for log forwarding..."
-incus exec k3s-master -- bash -c '
-# Install Filebeat
-curl -L -O https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-oss-7.10.2-amd64.deb
-dpkg -i filebeat-oss-7.10.2-amd64.deb
-rm filebeat-oss-7.10.2-amd64.deb
-
-# Download Wazuh Filebeat module
-curl -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz | tar -xvz -C /usr/share/filebeat/module
-
-# Configure Filebeat
-cat > /etc/filebeat/filebeat.yml <<EOF
-output.elasticsearch:
-  hosts: ["127.0.0.1:9200"]
-
-setup.template.json.enabled: true
-setup.template.json.path: "/etc/filebeat/wazuh-template.json"
-setup.template.json.name: "wazuh"
-setup.ilm.enabled: false
-
-filebeat.modules:
-  - module: wazuh
-    alerts:
-      enabled: true
-    archives:
-      enabled: false
-EOF
-
-# Download Wazuh template
-curl -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v4.7.0/extensions/elasticsearch/7.x/wazuh-template.json
-
-# Enable and start Filebeat
-systemctl daemon-reload
-systemctl enable filebeat
-systemctl start filebeat
-'
-
-log_info "Installing Wazuh dashboard..."
-incus exec k3s-master -- bash -c '
-# Install Wazuh dashboard
-apt install -y wazuh-dashboard
-
-# Configure dashboard
-cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
-server.host: "0.0.0.0"
-server.port: 5601
-opensearch.hosts: ["http://127.0.0.1:9200"]
-opensearch.ssl.verificationMode: none
-opensearch_security.enabled: false
-EOF
-
-# Enable and start dashboard
-systemctl daemon-reload
-systemctl enable wazuh-dashboard
-systemctl start wazuh-dashboard
-'
-
-echo "✓ Wazuh Manager, Indexer, and Dashboard installed on k3s-master"
+echo "✓ Wazuh Manager, Indexer, and Dashboard installed in wazuh-container"
 echo ""
 
-# Get k3s-master IP
-MASTER_IP=$(incus list k3s-master -c 4 -f csv | grep eth0 | cut -d' ' -f1)
-log_info "Wazuh Manager IP: $MASTER_IP"
+# Get wazuh-container IP
+WAZUH_IP=$(incus list wazuh-container -c 4 -f csv | grep eth0 | cut -d' ' -f1)
+log_info "Wazuh Manager IP: $WAZUH_IP"
+
+# Verify password was extracted
+if [ -z "$WAZUH_PASSWORD" ] || [ "$WAZUH_PASSWORD" == "CHECK_CONTAINER" ]; then
+    log_warn "Could not automatically extract password. You can find it by running:"
+    log_warn "  incus exec wazuh-container -- cat wazuh-install-files/wazuh-passwords.txt"
+    WAZUH_PASSWORD="<see instructions above>"
+else
+    log_info "Admin password successfully extracted!"
+fi
 
 # ==============================================
 # STEP 12: Install Wazuh Agents on Worker Nodes
 # ==============================================
 log_info "[12/12] Installing Wazuh Agents on worker nodes..."
+
+# Get manager version to ensure agent compatibility
+log_info "Getting Wazuh manager version..."
+WAZUH_VERSION=$(incus exec wazuh-container -- /var/ossec/bin/wazuh-control info | grep WAZUH_VERSION | cut -d'"' -f2 | sed 's/^v//')
+log_info "Manager version: $WAZUH_VERSION"
 
 for node in k3s-node1 k3s-node2; do
     log_info "Installing Wazuh agent on $node..."
@@ -300,8 +222,8 @@ for node in k3s-node1 k3s-node2; do
     # Update package list
     apt update
 
-    # Install Wazuh agent
-    WAZUH_MANAGER='$MASTER_IP' apt install -y wazuh-agent
+    # Install Wazuh agent with specific version matching manager, pointing to wazuh-container
+    WAZUH_MANAGER='$WAZUH_IP' apt install -y --allow-downgrades wazuh-agent=$WAZUH_VERSION-1
 
     # Start and enable agent
     systemctl daemon-reload
@@ -323,7 +245,7 @@ for node in k3s-node1 k3s-node2; do
     log_info "Registering $node with manager..."
 
     # Get agent key from manager
-    incus exec k3s-master -- bash -c "/var/ossec/bin/manage_agents -a -n $node -i any || true"
+    incus exec wazuh-container -- bash -c "/var/ossec/bin/manage_agents -a -n $node -i any || true"
 done
 
 # Restart agents to connect
@@ -464,20 +386,21 @@ echo "  Wazuh Information"
 echo "=========================================="
 echo ""
 echo "Wazuh Manager:"
-echo "  - Host: k3s-master ($MASTER_IP)"
+echo "  - Host: wazuh-container ($WAZUH_IP)"
 echo "  - API Port: 55000"
 echo "  - Agent Port: 1514"
 echo ""
 echo "Wazuh Dashboard:"
-echo "  - URL: http://$MASTER_IP:5601"
-echo "  - Default credentials: admin / admin"
+echo "  - URL: https://$WAZUH_IP"
+echo "  - Username: admin"
+echo "  - Password: $WAZUH_PASSWORD"
 echo ""
 echo "Wazuh Agents:"
 echo "  - k3s-node1: Installed and connected"
 echo "  - k3s-node2: Installed and connected"
 echo ""
 echo "Check agent status:"
-echo "  incus exec k3s-master -- /var/ossec/bin/agent_control -l"
+echo "  incus exec wazuh-container -- /var/ossec/bin/agent_control -l"
 echo ""
 
 echo "=========================================="
@@ -491,10 +414,12 @@ echo "2. Access Grafana dashboard:"
 echo "   (Check Grafana service IP from above)"
 echo ""
 echo "3. Access Wazuh dashboard:"
-echo "   http://$MASTER_IP:5601"
+echo "   https://$WAZUH_IP"
+echo "   Username: admin"
+echo "   Password: $WAZUH_PASSWORD"
 echo ""
 echo "4. View Wazuh manager logs:"
-echo "   incus exec k3s-master -- tail -f /var/ossec/logs/ossec.log"
+echo "   incus exec wazuh-container -- tail -f /var/ossec/logs/ossec.log"
 echo ""
 echo "5. View agent logs on nodes:"
 echo "   incus exec k3s-node1 -- tail -f /var/ossec/logs/ossec.log"
