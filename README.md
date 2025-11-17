@@ -213,7 +213,9 @@ incus list -c n,4
 
 ## IP Table Update
 
-Since this is suppose to build docker images, incus and docker are expected to be installed. But since docker overwrites some nat iptable rules that block incus bridge network interface traffic, a script was built to give priority to traffic coming from and into incus. Since docker was only used to build these images, and no container was running during the development of this project, there is no way to describe the behaviour of docker networking capabilities during and after the script has been executed. 
+Since this is suppose to build docker images, incus and docker are expected to be installed. But since docker overwrites some nat iptable rules that block incus bridge network interface traffic, a script was built to give priority to traffic coming from and into incus. 
+> [!WARNING]
+> Since docker was only used to build these images, and no container was running during the development of this project, there is no way to describe the behaviour of docker networking capabilities during and after the script has been executed. 
 
 ```bash
 sudo ./incus-network-fix.sh
