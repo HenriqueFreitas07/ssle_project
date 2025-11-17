@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Complete K3s Cluster Setup Script
+# Complete K3s Cluster Setup Script with Wazuh
 # This script automates the entire setup from Incus containers to deployed services
 
 set -e
@@ -24,7 +24,7 @@ log_error() {
 }
 
 echo "=========================================="
-echo "  Complete K3s Cluster Setup"
+echo "  Complete K3s Cluster Setup + Wazuh"
 echo "  Following SSLE Guide 2"
 echo "=========================================="
 echo ""
@@ -39,7 +39,7 @@ fi
 # ==============================================
 # STEP 1: Configure Host Kernel Parameters
 # ==============================================
-log_info "[1/10] Configuring host kernel parameters..."
+log_info "[1/12] Configuring host kernel parameters..."
 sysctl -w vm.overcommit_memory=1
 sysctl -w kernel.panic=10
 sysctl -w kernel.panic_on_oops=1
@@ -49,7 +49,7 @@ echo ""
 # ==============================================
 # STEP 2: Create K3s Incus Profile
 # ==============================================
-log_info "[2/10] Creating K3s Incus profile..."
+log_info "[2/12] Creating K3s Incus profile..."
 
 # Check if profile exists, delete if it does
 if incus profile show k3s &>/dev/null; then
@@ -75,7 +75,7 @@ echo ""
 # ==============================================
 # STEP 3: Create and Setup K3s Master Node
 # ==============================================
-log_info "[3/10] Creating K3s master node..."
+log_info "[3/12] Creating K3s master node..."
 
 # Delete if exists
 incus delete -f k3s-master 2>/dev/null || true
@@ -108,7 +108,7 @@ echo ""
 # ==============================================
 # STEP 4: Create and Join Worker Nodes
 # ==============================================
-log_info "[4/10] Creating and joining worker nodes..."
+log_info "[4/12] Creating and joining worker nodes..."
 
 # Delete if exists
 incus delete -f k3s-node1 k3s-node2 2>/dev/null || true
@@ -136,15 +136,207 @@ echo ""
 # ==============================================
 # STEP 5: Label Nodes for Workload Scheduling
 # ==============================================
-log_info "[5/10] Labeling nodes for scheduling..."
-incus exec k3s-master -- k3s kubectl label nodes k3s-node1 k3s-node2 node-role=services node-role=monitoring --overwrite
+log_info "[5/12] Labeling nodes for scheduling..."
+incus exec k3s-master -- k3s kubectl label nodes k3s-master node-role=monitoring --overwrite
+incus exec k3s-master -- k3s kubectl label nodes k3s-node1 node-role=services --overwrite
+incus exec k3s-master -- k3s kubectl label nodes k3s-node2 node-role=services --overwrite
 echo "✓ Nodes labeled"
 echo ""
 
+log_info "[11/12] Installing Wazuh Manager on k3s-master..."
+
+incus exec k3s-master -- bash -c '
+# Update and install prerequisites
+apt update
+apt install -y curl apt-transport-https lsb-release gnupg
+
+# Add Wazuh repository
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+chmod 644 /usr/share/keyrings/wazuh.gpg
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee -a /etc/apt/sources.list.d/wazuh.list
+
+# Update package list
+apt update
+'
+
+log_info "Installing Wazuh indexer..."
+incus exec k3s-master -- bash -c '
+# Install Wazuh indexer
+apt install -y wazuh-indexer
+
+# Configure indexer for single node
+cat > /etc/wazuh-indexer/opensearch.yml <<EOF
+network.host: "0.0.0.0"
+node.name: "wazuh-indexer"
+cluster.name: "wazuh-cluster"
+discovery.type: "single-node"
+plugins.security.disabled: true
+EOF
+
+# Start and enable indexer
+systemctl daemon-reload
+systemctl enable wazuh-indexer
+systemctl start wazuh-indexer
+
+# Wait for indexer to start
+sleep 10
+'
+
+log_info "Installing Wazuh manager..."
+incus exec k3s-master -- bash -c '
+# Install Wazuh manager
+apt install -y wazuh-manager
+
+# Start and enable manager
+systemctl daemon-reload
+systemctl enable wazuh-manager
+systemctl start wazuh-manager
+
+# Wait for manager to start
+sleep 5
+'
+
+# Deploy custom ossec.conf if it exists
+if [ -f "$PROJECT_DIR/wazuh-config/ossec.conf" ]; then
+    log_info "Deploying custom ossec.conf..."
+    cat "$PROJECT_DIR/wazuh-config/ossec.conf" | incus exec k3s-master -- bash -c 'cat > /var/ossec/etc/ossec.conf'
+    incus exec k3s-master -- systemctl restart wazuh-manager
+    log_info "Custom ossec.conf deployed and manager restarted"
+else
+    log_info "No custom ossec.conf found, using default configuration"
+fi
+
+# Deploy custom agent.conf if it exists
+if [ -f "$PROJECT_DIR/wazuh-config/agent.conf" ]; then
+    log_info "Deploying custom agent.conf..."
+    cat "$PROJECT_DIR/wazuh-config/agent.conf" | incus exec k3s-master -- bash -c 'cat > /var/ossec/etc/shared/default/agent.conf'
+    log_info "Custom agent.conf deployed"
+else
+    log_info "No custom agent.conf found, using default configuration"
+fi
+
+log_info "Installing Filebeat for log forwarding..."
+incus exec k3s-master -- bash -c '
+# Install Filebeat
+curl -L -O https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-oss-7.10.2-amd64.deb
+dpkg -i filebeat-oss-7.10.2-amd64.deb
+rm filebeat-oss-7.10.2-amd64.deb
+
+# Download Wazuh Filebeat module
+curl -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz | tar -xvz -C /usr/share/filebeat/module
+
+# Configure Filebeat
+cat > /etc/filebeat/filebeat.yml <<EOF
+output.elasticsearch:
+  hosts: ["127.0.0.1:9200"]
+
+setup.template.json.enabled: true
+setup.template.json.path: "/etc/filebeat/wazuh-template.json"
+setup.template.json.name: "wazuh"
+setup.ilm.enabled: false
+
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+EOF
+
+# Download Wazuh template
+curl -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v4.7.0/extensions/elasticsearch/7.x/wazuh-template.json
+
+# Enable and start Filebeat
+systemctl daemon-reload
+systemctl enable filebeat
+systemctl start filebeat
+'
+
+log_info "Installing Wazuh dashboard..."
+incus exec k3s-master -- bash -c '
+# Install Wazuh dashboard
+apt install -y wazuh-dashboard
+
+# Configure dashboard
+cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
+server.host: "0.0.0.0"
+server.port: 5601
+opensearch.hosts: ["http://127.0.0.1:9200"]
+opensearch.ssl.verificationMode: none
+opensearch_security.enabled: false
+EOF
+
+# Enable and start dashboard
+systemctl daemon-reload
+systemctl enable wazuh-dashboard
+systemctl start wazuh-dashboard
+'
+
+echo "✓ Wazuh Manager, Indexer, and Dashboard installed on k3s-master"
+echo ""
+
+# Get k3s-master IP
+MASTER_IP=$(incus list k3s-master -c 4 -f csv | grep eth0 | cut -d' ' -f1)
+log_info "Wazuh Manager IP: $MASTER_IP"
+
+# ==============================================
+# STEP 12: Install Wazuh Agents on Worker Nodes
+# ==============================================
+log_info "[12/12] Installing Wazuh Agents on worker nodes..."
+
+for node in k3s-node1 k3s-node2; do
+    log_info "Installing Wazuh agent on $node..."
+
+    incus exec $node -- bash -c "
+    # Update and install prerequisites
+    apt update
+    apt install -y curl apt-transport-https lsb-release gnupg
+
+    # Add Wazuh repository
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+    chmod 644 /usr/share/keyrings/wazuh.gpg
+    echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee -a /etc/apt/sources.list.d/wazuh.list
+
+    # Update package list
+    apt update
+
+    # Install Wazuh agent
+    WAZUH_MANAGER='$MASTER_IP' apt install -y wazuh-agent
+
+    # Start and enable agent
+    systemctl daemon-reload
+    systemctl enable wazuh-agent
+    systemctl start wazuh-agent
+    "
+
+    echo "✓ $node agent installed"
+done
+
+log_info "Configuring agents to connect to manager..."
+
+# Wait for manager API to be ready
+log_info "Waiting for Wazuh manager to be fully ready..."
+sleep 15
+
+# Register agents with manager
+for node in k3s-node1 k3s-node2; do
+    log_info "Registering $node with manager..."
+
+    # Get agent key from manager
+    incus exec k3s-master -- bash -c "/var/ossec/bin/manage_agents -a -n $node -i any || true"
+done
+
+# Restart agents to connect
+for node in k3s-node1 k3s-node2; do
+    incus exec $node -- systemctl restart wazuh-agent
+done
+
+echo "✓ Wazuh agents configured and connected"
+echo ""
 # ==============================================
 # STEP 6: Build Docker Images
 # ==============================================
-log_info "[6/10] Building Docker images..."
+log_info "[6/12] Building Docker images..."
 
 # Get the real user (since we're running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
@@ -162,7 +354,7 @@ echo ""
 # ==============================================
 # STEP 7: Export and Import Images to K3s
 # ==============================================
-log_info "[7/10] Exporting and importing Docker images to K3s nodes..."
+log_info "[7/12] Exporting and importing Docker images to K3s nodes..."
 
 # Create temp directory
 mkdir -p /tmp/k8s-images
@@ -195,7 +387,7 @@ echo ""
 # ==============================================
 # STEP 8: Deploy Namespace and ConfigMaps
 # ==============================================
-log_info "[8/10] Deploying namespace and configmaps..."
+log_info "[8/12] Deploying namespace and configmaps..."
 
 cat "$PROJECT_DIR/k8s/namespace.yaml" | incus exec k3s-master -- bash -c 'cat > /root/namespace.yaml && k3s kubectl apply -f /root/namespace.yaml'
 
@@ -206,34 +398,24 @@ echo "✓ Namespaces and ConfigMaps created"
 echo ""
 
 # ==============================================
-# STEP 9: Deploy Storage PVCs
+# STEP 9: Deploy Monitoring Stack
 # ==============================================
-log_info "Deploying Prometheus and PVC..."
+log_info "[9/12] Deploying monitoring stack (Prometheus & Grafana)..."
 cat "$PROJECT_DIR/k8s/prometheus.yaml" | incus exec k3s-master -- bash -c 'cat > /root/prometheus.yaml && k3s kubectl apply -f /root/prometheus.yaml'
 
-log_info "Deploying Storage PVC..." 
+log_info "Deploying Storage PVC..."
 cat "$PROJECT_DIR/k8s/storage-pvc.yaml" | incus exec k3s-master -- bash -c 'cat > /root/storage-pvc.yaml && k3s kubectl apply -f /root/storage-pvc.yaml'
 
 log_info "Deploying Grafana..."
 cat "$PROJECT_DIR/k8s/grafana.yaml" | incus exec k3s-master -- bash -c 'cat > /root/grafana.yaml && k3s kubectl apply -f /root/grafana.yaml'
 
-log_info "Deploying Wazuh ..."
-cat "$PROJECT_DIR/k8s/wazuh-namespace.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-namespace.yaml && k3s kubectl apply -f /root/wazuh-namespace.yaml'
-
-log_info "Deploying Wazuh Manager..."
-cat "$PROJECT_DIR/k8s/wazuh-manager.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-manager.yaml && k3s kubectl apply -f /root/wazuh-manager.yaml'
-
-log_info "Deploying Wazuh indexer..."
-cat "$PROJECT_DIR/k8s/wazuh-elasticsearch.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-elasticsearch.yaml && k3s kubectl apply -f /root/wazuh-elasticsearch.yaml'
-
-log_info "Deploying Wazuh Dashboard..."
-cat "$PROJECT_DIR/k8s/wazuh-dashboard.yaml" | incus exec k3s-master -- bash -c 'cat > /root/wazuh-dashboard.yaml && k3s kubectl apply -f /root/wazuh-dashboard.yaml'
-
+echo "✓ Monitoring stack deployed"
+echo ""
 
 # ==============================================
-# STEP 10: Deploy All Services
+# STEP 10: Deploy All Microservices
 # ==============================================
-log_info "[10/10] Deploying all services and labeling nodes ..."
+log_info "[10/12] Deploying microservices..."
 
 # Deploy microservices
 for service in registry-service storage-service ingestion-service analytics-service temperature-service; do
@@ -241,18 +423,17 @@ for service in registry-service storage-service ingestion-service analytics-serv
     cat "$PROJECT_DIR/k8s/${service}.yaml" | incus exec k3s-master -- bash -c "cat > /root/${service}.yaml && k3s kubectl apply -f /root/${service}.yaml"
 done
 
-log_info "Labeling Worker nodes "
-k3s kubectl label node k3s-node1 node-role=services --overwrite
-k3s kubectl label node k3s-node2 node-role=services --overwrite
-
-
-echo "✓ All services deployed"
+echo "✓ All microservices deployed"
 echo ""
+
+# ==============================================
+# STEP 11: Install Wazuh on k3s-master
+# ==============================================
 
 # ==============================================
 # Wait for Pods to be Ready
 # ==============================================
-log_info "Waiting for pods to be ready (this may take a minute)..."
+log_info "Waiting for K8s pods to be ready (this may take a minute)..."
 sleep 20
 
 echo ""
@@ -279,23 +460,44 @@ incus exec k3s-master -- k3s kubectl get svc -n ssle-project
 echo ""
 
 echo "=========================================="
+echo "  Wazuh Information"
+echo "=========================================="
+echo ""
+echo "Wazuh Manager:"
+echo "  - Host: k3s-master ($MASTER_IP)"
+echo "  - API Port: 55000"
+echo "  - Agent Port: 1514"
+echo ""
+echo "Wazuh Dashboard:"
+echo "  - URL: http://$MASTER_IP:5601"
+echo "  - Default credentials: admin / admin"
+echo ""
+echo "Wazuh Agents:"
+echo "  - k3s-node1: Installed and connected"
+echo "  - k3s-node2: Installed and connected"
+echo ""
+echo "Check agent status:"
+echo "  incus exec k3s-master -- /var/ossec/bin/agent_control -l"
+echo ""
+
+echo "=========================================="
 echo "  Next Steps:"
 echo "=========================================="
 echo ""
-echo "1. Check service health:"
+echo "1. Check K8s service health:"
 echo "   incus exec k3s-master -- k3s kubectl get pods -n ssle-project"
 echo ""
-echo "2. Access services from host:"
-echo "   ./k8s/access-services.sh"
+echo "2. Access Grafana dashboard:"
+echo "   (Check Grafana service IP from above)"
 echo ""
-echo "3. Test a service:"
-echo "   incus exec k3s-master -- curl http://10.43.60.92:5050/health"
+echo "3. Access Wazuh dashboard:"
+echo "   http://$MASTER_IP:5601"
 echo ""
-echo "4. View logs:"
-echo "   incus exec k3s-master -- k3s kubectl logs -n ssle-project -l app=registry-service"
+echo "4. View Wazuh manager logs:"
+echo "   incus exec k3s-master -- tail -f /var/ossec/logs/ossec.log"
 echo ""
-echo "5. Copy kubeconfig to host (optional):"
-echo "   incus exec k3s-master -- cat /etc/rancher/k3s/k3s.yaml > ~/.kube/k3s-config"
+echo "5. View agent logs on nodes:"
+echo "   incus exec k3s-node1 -- tail -f /var/ossec/logs/ossec.log"
 echo ""
 
 log_info "Setup completed successfully! 🎉"

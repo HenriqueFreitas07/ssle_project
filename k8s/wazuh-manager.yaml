@@ -76,15 +76,8 @@ data:
       <indexer>
         <enabled>yes</enabled>
         <hosts>
-          <host>https://wazuh-elasticsearch:9200</host>
+          <host>http://wazuh-indexer:9200</host>
         </hosts>
-        <ssl>
-          <certificate_authorities>
-            <ca>/etc/ssl/root-ca.pem</ca>
-          </certificate_authorities>
-          <certificate>/etc/ssl/filebeat.pem</certificate>
-          <key>/etc/ssl/filebeat.key</key>
-        </ssl>
       </indexer>
 
       <vulnerability-detection>
@@ -258,7 +251,7 @@ spec:
           protocol: TCP
         env:
         - name: INDEXER_URL
-          value: "https://wazuh-elasticsearch:9200"
+          value: "http://wazuh-indexer:9200"
         - name: INDEXER_USERNAME
           value: "admin"
         - name: INDEXER_PASSWORD
