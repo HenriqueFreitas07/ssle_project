@@ -1,222 +1,263 @@
-# SSLE Project - Microservices on K3s in Incus
+# Wazuh Attack Detection & Testing for Apache Server
 
-A complete microservices architecture deployed on K3s running inside Incus containers, with Prometheus monitoring and Grafana dashboards.
+Complete setup for detecting and responding to Shellshock, DoS, and APT attacks on Apache using Wazuh.
 
-## Architecture
+---
+
+## 📁 Project Structure
 
 ```
-Host Machine
-    |
-    └─── Incus Containers (10.10.10.0/24)
-            ├─── k3s-master  (Control plane)
-            ├─── k3s-node1   (Worker - services)
-            └─── k3s-node2   (Worker - services)
-                    |
-                    └─── K3s Cluster
-                            ├─── Microservices (ssle-project namespace)
-                            │     ├─── registry-service
-                            │     ├─── storage-service
-                            │     ├─── ingestion-service
-                            │     ├─── analytics-service
-                            │     └─── temperature-service
-                            │
-                            └─── Monitoring (monitoring namespace)
-                                  ├─── Prometheus
-                                  ├─── Node Exporter
-                                  └─── Grafana
+ssle_project/
+├── wazuh-config/
+│   ├── local_rules.xml              # 25+ custom detection rules
+│   ├── ossec.conf                   # Wazuh manager config with active response
+│   ├── agent-config.conf            # Agent config with Apache monitoring
+│   ├── ATTACK_DETECTION_SUMMARY.md  # Complete rule documentation
+│   ├── QUICK_REFERENCE.md           # Fast lookup guide
+│   └── README_TESTING.md            # Testing documentation hub
+│
+├── INCUS_TESTING_GUIDE.md           # ⭐ START HERE for Incus testing
+├── ATTACK_SIMULATION_GUIDE.md       # Comprehensive attack simulation guide
+├── TESTING_QUICK_START.md           # Generic quick start guide
+│
+├── setup-incus-attacker.sh          # ⭐ Incus attacker container setup
+├── setup-attacker-container.sh      # Generic (Docker/K8s) setup
+└── run-attack-tests.sh              # Automated attack testing script
 ```
-![architecture diagram](./ssle_architecture.png) 
 
-## Prerequisites
+---
 
-- **Incus** installed and configured
-- **Docker** and **docker-compose** installed
-- **Sudo access** (required for kernel parameters)
-- **Linux host** (tested on Manjaro, should work on any Linux)
+## 🚀 Quick Start (Incus Environment)
 
-## Quick Start
-
-### 1. Clone the Repository
+### 1. Setup Attacker Container
 
 ```bash
-git clone <your-repo-url>
-cd ssle_project
+cd /home/hfreitas07/Desktop/ssle_project
+./setup-incus-attacker.sh
 ```
 
-### 2. One-Command Setup
+The script will:
+- Create an Incus container named `attacker`
+- Install all necessary tools
+- Auto-detect your Apache container IP
+- Show you next steps
 
-Run the complete setup script:
+### 2. Run Your First Test (Shellshock)
 
 ```bash
-sudo ./setup-complete-cluster.sh
+# Get your Apache IP from the setup script output, or:
+incus list
+
+# Run a simple Shellshock test
+incus exec attacker -- curl -H "User-Agent: () { :; }; echo test" http://<APACHE_IP>/
 ```
 
-This script will:
-1. Configure host kernel parameters
-2. Create K3s Incus profile
-3. Deploy K3s cluster (1 master + 2 workers)
-4. Build Docker images for all microservices
-5. Import images into K3s nodes
-6. Deploy all Kubernetes resources
-7. Start Prometheus and Grafana monitoring
-8. Start Wazuh installation Components
-9. Install Wazuh agents on worker nodes
-
-**Setup time:** ~3-9 minutes
-
-## Project Structure
-
-```
-.
-├── setup-complete-cluster.sh    # Main setup script
-├── docker-compose.yml            # Service container definitions
-├── src/                          # Service source code
-│   ├── registry_service/
-│   ├── storage_service/
-│   ├── ingestion_service/
-│   ├── analytics_service/
-│   └── temperature_service/
-└── k8s/                          # Kubernetes manifests
-    ├── namespace.yaml
-    ├── configmaps.yaml
-    ├── storage-pvc.yaml
-    ├── registry-service.yaml
-    ├── storage-service.yaml
-    ├── ingestion-service.yaml
-    ├── analytics-service.yaml
-    ├── temperature-service.yaml
-    ├── prometheus.yaml
-    └── grafana.yaml
-```
-
-## Services
-
-### Microservices
-
-All services are Flask-based Python applications:
-
-- **Registry Service** (Port 5050): Service discovery and registration
-- **Storage Service** (Port 5002): Data persistence layer
-- **Ingestion Service** (Port 5001): Data ingestion pipeline
-- **Analytics Service** (Port 5003): Data analysis and processing
-- **Temperature Service**: Temperature data monitoring
-
-### Monitoring Stack
-
-- **Prometheus**: Metrics collection and storage
-- **Node Exporter**: Host-level metrics (CPU, memory, disk, network)
-- **Grafana**: Visualization with pre-configured dashboard
-
-## Useful Commands
-
-### Cluster Management
+### 3. Verify Detection
 
 ```bash
-# Check cluster nodes
-incus exec k3s-master -- k3s kubectl get nodes
+# On Wazuh manager, watch for alerts
+incus exec wazuh-manager -- tail -f /var/ossec/logs/alerts/alerts.log | grep "Shellshock"
 
-# Check all pods
-incus exec k3s-master -- k3s kubectl get pods -A
-
-# Check services
-incus exec k3s-master -- k3s kubectl get svc -n ssle-project
+# On Apache container, check if IP was blocked
+incus exec <apache-container> -- iptables -L INPUT -n | grep DROP
 ```
 
-### Service Health
+**Expected Result:**
+- ✅ Wazuh alert: Rule 100100, Level 15 - "Shellshock attack detected"
+- ✅ Attacker IP blocked for 30 minutes
+- ✅ Subsequent requests fail/timeout
+
+---
+
+## 📚 Documentation
+
+### For Testing (Choose Based on Your Environment)
+
+**Using Incus?** → Read **INCUS_TESTING_GUIDE.md** ⭐ (Recommended for you!)
+
+**Using Docker/Kubernetes?** → Read **TESTING_QUICK_START.md**
+
+**Want comprehensive details?** → Read **ATTACK_SIMULATION_GUIDE.md**
+
+### For Configuration Reference
+
+**Quick rule lookup** → **wazuh-config/QUICK_REFERENCE.md**
+
+**Complete documentation** → **wazuh-config/ATTACK_DETECTION_SUMMARY.md**
+
+---
+
+## 🎯 Attack Coverage
+
+### Shellshock (Rules 100100-100102)
+- Detects `() { :; };` patterns in requests
+- Command execution attempts
+- Header-based exploitation
+- **Response:** 30-minute IP block
+
+### DoS Attacks (Rules 100200-100206, 200xxx)
+- HTTP floods: 50-250 req/s detection thresholds
+- Slowloris attacks
+- POST floods
+- SYN floods, UDP floods
+- **Response:** 5-10 minute IP blocks
+
+### APT Attacks (Rules 100300-100312)
+- **Reconnaissance:** Directory scanning, vulnerability scanning, scanner detection
+- **Exploitation:** SQL injection, XSS, command injection, LFI
+- **Persistence:** Web shells, obfuscated payloads, repeated attacks
+- **Credential Access:** Brute force, sensitive file access
+- **Data Exfiltration:** Large data transfers
+- **Response:** 30-60 minute IP blocks
+
+---
+
+## 🛠️ Automated Testing
+
+### Available Test Types
 
 ```bash
-# Test service health (replace <node-ip> with actual IP, it can be any of the nodes of the cluster since it is running with k8s)
-curl http://<node-ip>:30050/health  # Registry
-curl http://<node-ip>:30002/health  # Storage
-curl http://<node-ip>:30001/health  # Ingestion
-curl http://<node-ip>:30003/health  # Analytics
+incus file push run-attack-tests.sh attacker/root/
+incus exec attacker -- bash /root/run-attack-tests.sh <APACHE_IP> <TEST_TYPE>
 ```
 
-### Logs
+| Test Type | Description | Impact |
+|-----------|-------------|--------|
+| `shellshock` | Shellshock vulnerability detection | Low, 30min block |
+| `apt-recon` | Directory/vulnerability scanning | Low, no block |
+| `apt-exploit` | SQL/XSS/Command injection | Low, 30min block |
+| `apt-persist` | Web shells, obfuscation | Low, 60min block |
+| `dos-light` | 50-100 req/s HTTP flood | Medium, 5-10min block |
+| `dos-heavy` | 200+ req/s aggressive flood | High, 10min block |
+| `all` | All tests (CAUTION) | High, multiple blocks |
+
+---
+
+## 📊 Example Test Session
 
 ```bash
-# View service logs
-incus exec k3s-master -- k3s kubectl logs -n ssle-project -l app=registry-service
-incus exec k3s-master -- k3s kubectl logs -n ssle-project -l app=storage-service
+# 1. Create attacker container
+./setup-incus-attacker.sh
 
-# View Prometheus logs
-incus exec k3s-master -- k3s kubectl logs -n monitoring -l app=prometheus
+# 2. Find Apache IP
+incus list
+# Example output: apache-container  10.100.123.45
 
-# View Grafana logs
-incus exec k3s-master -- k3s kubectl logs -n monitoring -l app=grafana
+# 3. Monitor Wazuh alerts (in another terminal)
+incus exec wazuh-manager -- tail -f /var/ossec/logs/alerts/alerts.log &
+
+# 4. Run Shellshock test
+incus exec attacker -- curl -H "User-Agent: () { :; }; echo test" http://10.100.123.45/
+
+# 5. Verify blocking
+incus exec apache-container -- iptables -L INPUT -n | grep DROP
+
+# 6. Run automated tests
+incus file push run-attack-tests.sh attacker/root/
+incus exec attacker -- bash /root/run-attack-tests.sh 10.100.123.45 apt-recon
 ```
 
-### Rebuild and Redeploy
+---
 
-If you make changes to services:
+## ✅ Verification Checklist
+
+- [ ] Wazuh manager running with custom rules loaded
+- [ ] Apache container running with Wazuh agent
+- [ ] Attacker container created successfully
+- [ ] Apache IP identified
+- [ ] Shellshock test triggers Rule 100100
+- [ ] Attacker IP appears in iptables DROP rules
+- [ ] Alerts visible in Wazuh dashboard
+- [ ] Active responses logged
+
+---
+
+## 🔧 Common Incus Commands
 
 ```bash
-# Rebuild images
-docker-compose build
+# List all containers
+incus list
 
-# Save and import to K3s nodes
-docker save ssle_project-registry_service:latest -o /tmp/registry.tar
-incus exec k3s-master -- ctr --namespace k8s.io images import - < /tmp/registry.tar
-incus exec k3s-node1 -- ctr --namespace k8s.io images import - < /tmp/registry.tar
-incus exec k3s-node2 -- ctr --namespace k8s.io images import - < /tmp/registry.tar
+# Access container
+incus exec <container-name> -- bash
 
-# Restart pods
-incus exec k3s-master -- k3s kubectl rollout restart deployment/registry-service -n ssle-project
+# Copy files to container
+incus file push local-file.txt container-name/path/
+
+# Copy files from container
+incus file pull container-name/path/file.txt ./
+
+# Stop/start container
+incus stop <container-name>
+incus start <container-name>
+
+# Delete container
+incus delete <container-name>
 ```
 
-## Grafana Dashboard
+---
 
-The setup automatically provisions a dashboard for monitoring the service nodes:
+## 🐛 Troubleshooting
 
-**Dashboard: "SSLE Service Nodes Monitoring"**
-- CPU usage per node
-- Memory usage per node
-- Network traffic (RX/TX)
-- Disk usage
-- Load averages
+### No alerts appearing?
+```bash
+# Check Wazuh manager
+incus exec wazuh-manager -- systemctl status wazuh-manager
+incus exec wazuh-manager -- /var/ossec/bin/agent_control -l
+```
 
-Access at: `http://<node-ip>:30300/
+### No IP blocking?
+```bash
+# Check active-response logs
+incus exec wazuh-manager -- tail -f /var/ossec/logs/active-responses.log
 
-## Cleanup
+# Check iptables on Apache
+incus exec <apache-container> -- iptables -L -n -v
+```
 
-To completely remove the cluster:
+### Already blocked?
+```bash
+# Clear IP block
+incus exec <apache-container> -- iptables -D INPUT -s <attacker-ip> -j DROP
+```
+
+More troubleshooting: See **INCUS_TESTING_GUIDE.md**
+
+---
+
+## 🧹 Cleanup
 
 ```bash
-# Delete all containers
-incus delete -f k3s-master k3s-node1 k3s-node2
+# Remove attacker container
+incus stop attacker
+incus delete attacker
 
-# Delete the profile
-incus profile delete k3s
-
-# Remove Docker images (optional)
-docker-compose down --rmi all
+# Clear IP blocks
+incus exec <apache-container> -- iptables -F INPUT
 ```
 
-### Service not accessible from host
+---
 
-Check NodePort services:
-```bash
-incus exec k3s-master -- k3s kubectl get svc -n ssle-project
-```
+## ⚠️ Important Warnings
 
-Verify node IPs:
-```bash
-incus list -c n,4
-```
+- **Only test systems you own or have explicit authorization to test**
+- DoS tests can impact service availability
+- IP blocks can last 5-60 minutes
+- Don't run all tests simultaneously
+- Monitor resources during heavy tests
 
-## Network Details
+---
 
-- **Incus Bridge**: 10.10.10.0/24
-- **K3s Pod Network**: 10.42.0.0/16 (Flannel)
-- **K3s Service Network**: 10.43.0.0/16 (ClusterIP)
-- **NodePort Range**: 30000-32767
+## 📖 Additional Resources
 
-## IP Table Update
+- **Incus Testing Guide:** INCUS_TESTING_GUIDE.md
+- **Attack Simulation:** ATTACK_SIMULATION_GUIDE.md  
+- **Rule Reference:** wazuh-config/QUICK_REFERENCE.md
+- **Full Documentation:** wazuh-config/ATTACK_DETECTION_SUMMARY.md
 
-Since this is suppose to build docker images, incus and docker are expected to be installed. But since docker overwrites some nat iptable rules that block incus bridge network interface traffic, a script was built to give priority to traffic coming from and into incus. 
-> [!WARNING]
-> Since docker was only used to build these images, and no container was running during the development of this project, there is no way to describe the behaviour of docker networking capabilities during and after the script has been executed. 
+---
 
-```bash
-sudo ./incus-network-fix.sh
-```
+**Created:** 2025-11-19  
+**Environment:** Incus containers  
+**Wazuh Version:** 4.x  
+**Apache Version:** 2.4

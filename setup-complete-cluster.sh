@@ -198,7 +198,10 @@ log_info "Wazuh Manager IP: $WAZUH_IP"
 # Apply Custom ossec.conf Configuration
 # ==============================================
 # Copy the custom ossec.conf to the container and replace variables
-CONFIG=$(cat "./wazuh-config/ossec.conf" | sed "s/NODE_IP/$WAZUH_IP/g")
+CONFIG=$(cat "./wazuh-config/ossec.conf" | \
+  sed "s/MANAGER_ADDRESS/$WAZUH_IP/g"
+
+)
 
 CUSTOM_RULES=$(cat "./wazuh-config/local_rules.xml")
 
@@ -261,26 +264,23 @@ for node in k3s-node1 k3s-node2 apache-container; do
     systemctl enable wazuh-agent
     systemctl start wazuh-agent
     "
+    log_info "Changing wazuh-agent config" 
 
+  incus file push wazuh-config/agent-config.conf $node/var/ossec/etc/ossec.conf
+  incus exec $node -- sed -i "s/MANAGER_ADDRESS/$WAZUH_IP/g" /var/ossec/etc/ossec.conf
+  incus exec $node -- systemctl restart wazuh-agent
     echo "✓ $node agent installed"
 done
 
 log_info "Configuring agents to connect to manager..."
 
-# Wait for manager API to be ready
 log_info "Waiting for Wazuh manager to be fully ready..."
 sleep 15
 
 # Register agents with manager
 for node in k3s-node1 k3s-node2; do
     log_info "Registering $node with manager..."
-
-    # Get agent key from manager
     incus exec wazuh-container -- bash -c "/var/ossec/bin/manage_agents -a -n $node -i any || true"
-done
-
-# Restart agents to connect
-for node in k3s-node1 k3s-node2; do
     incus exec $node -- systemctl restart wazuh-agent
 done
 
@@ -291,13 +291,11 @@ echo ""
 # ==============================================
 log_info "[6/12] Building Docker images..."
 
-# Get the real user (since we're running with sudo)
 REAL_USER="${SUDO_USER:-$USER}"
 PROJECT_DIR="/home/$REAL_USER/Desktop/ssle_project"
 
 cd "$PROJECT_DIR"
 
-# Build images using docker-compose
 log_info "Building images with docker-compose..."
 docker-compose build
 

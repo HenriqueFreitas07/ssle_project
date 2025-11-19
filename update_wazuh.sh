@@ -38,7 +38,7 @@ fi
 log_info "Reading configuration files..."
 
 # Read and substitute NODE_IP in ossec.conf
-CONFIG=$(cat "./wazuh-config/ossec.conf" | sed "s/NODE_IP/$WAZUH_IP/g")
+CONFIG=$(cat "./wazuh-config/ossec.conf" | sed "s/MANAGER_ADDRESS/$WAZUH_IP/g")
 
 # Read custom rules
 CUSTOM_RULES=$(cat "./wazuh-config/local_rules.xml")
