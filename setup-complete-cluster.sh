@@ -114,7 +114,7 @@ log_info "[4/12] Creating and joining worker nodes..."
 incus delete -f k3s-node1 k3s-node2 2>/dev/null || true
 
 # Create worker nodes
-for node in k3s-node1 k3s-node2; do
+for node in k3s-node1 k3s-node2 ; do
     log_info "Creating $node..."
     incus launch images:debian/trixie $node --profile k3s
     sleep 5
@@ -133,6 +133,13 @@ log_info "Cluster nodes:"
 incus exec k3s-master -- k3s kubectl get nodes
 echo ""
 
+log_info "Creating Apache container..."
+incus launch images:ubuntu/22.04 apache-container
+incus exec apache-container -- apt install apache2 
+incus file push wazuh-config/mpm_event.conf apache-container/etc/apache2/mods-enabled/mpm_event.conf
+
+
+#
 # ==============================================
 # STEP 5: Label Nodes for Workload Scheduling
 # ==============================================
@@ -187,6 +194,30 @@ echo ""
 WAZUH_IP=$(incus list wazuh-container -c 4 -f csv | grep eth0 | cut -d' ' -f1)
 log_info "Wazuh Manager IP: $WAZUH_IP"
 
+# ==============================================
+# Apply Custom ossec.conf Configuration
+# ==============================================
+# Copy the custom ossec.conf to the container and replace variables
+CONFIG=$(cat "./wazuh-config/ossec.conf" | sed "s/NODE_IP/$WAZUH_IP/g")
+
+CUSTOM_RULES=$(cat "./wazuh-config/local_rules.xml")
+
+log_info "Applying custom ossec.conf configuration..."
+echo "$CONFIG" | incus exec wazuh-container -- bash -c 'cat > /var/ossec/etc/ossec.conf'
+
+log_info "Applying custom rules to the server..." 
+echo "$CUSTOM_RULES" | incus exec wazuh-container -- bash -c 'cat > /var/ossec/etc/rules/local_rules.xml'
+
+log_info "Restarting Wazuh manager to apply configuration..."
+
+incus exec wazuh-container -- systemctl restart wazuh-manager
+
+log_info "Waiting for Wazuh manager to restart..."
+sleep 10
+
+echo "✓ Custom ossec.conf applied and manager restarted"
+echo ""
+
 # Verify password was extracted
 if [ -z "$WAZUH_PASSWORD" ] || [ "$WAZUH_PASSWORD" == "CHECK_CONTAINER" ]; then
     log_warn "Could not automatically extract password. You can find it by running:"
@@ -206,7 +237,7 @@ log_info "Getting Wazuh manager version..."
 WAZUH_VERSION=$(incus exec wazuh-container -- /var/ossec/bin/wazuh-control info | grep WAZUH_VERSION | cut -d'"' -f2 | sed 's/^v//')
 log_info "Manager version: $WAZUH_VERSION"
 
-for node in k3s-node1 k3s-node2; do
+for node in k3s-node1 k3s-node2 apache-container; do
     log_info "Installing Wazuh agent on $node..."
 
     incus exec $node -- bash -c "
