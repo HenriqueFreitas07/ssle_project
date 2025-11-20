@@ -140,8 +140,17 @@
     <group>shellshock,exploit,apache,</group>
   </rule>
 
+  <!-- Override default rule 31108 to enable DoS frequency detection -->
+  <rule id="31108" level="3" overwrite="yes">
+    <if_sid>31100</if_sid>
+    <id>^2|^3</id>
+    <compiled_rule>is_simple_http_request</compiled_rule>
+    <description>HTTP access log - successful request</description>
+    <group>web,accesslog,</group>
+  </rule>
+
   <rule id="100200" level="10" frequency="50" timeframe="10">
-    <if_matched_sid>30100</if_matched_sid>
+    <if_matched_sid>31108</if_matched_sid>
     <same_source_ip />
     <description>HTTP flood from single IP (50 req/10s) - Possible DoS</description>
     <mitre>
@@ -151,7 +160,7 @@
   </rule>
 
   <rule id="100201" level="12" frequency="100" timeframe="15">
-    <if_matched_sid>30100</if_matched_sid>
+    <if_matched_sid>31108</if_matched_sid>
     <same_source_ip />
     <description>High frequency HTTP flood (100 req/15s) - DoS confirmed</description>
     <mitre>
@@ -161,7 +170,7 @@
   </rule>
 
   <rule id="100202" level="15" frequency="200" timeframe="20">
-    <if_matched_sid>30100</if_matched_sid>
+    <if_matched_sid>31108</if_matched_sid>
     <same_source_ip />
     <description>Aggressive DoS attack (200 req/20s)</description>
     <mitre>
@@ -171,7 +180,7 @@
   </rule>
 
   <rule id="100203" level="12" frequency="30" timeframe="10">
-    <if_matched_sid>30100</if_matched_sid>
+    <if_matched_sid>31108</if_matched_sid>
     <same_source_ip/>
     <same_url/>
     <description>HTTP flood targeting specific endpoint (30 req/10s)</description>
@@ -235,14 +244,14 @@
   </rule>
 
   <rule id="100302" level="12">
-    <if_sid>30100,30101,30102,30103</if_sid>
-    <regex type="pcre2">(\%27)|(\-\-)|(\%23)|(UNION.*SELECT)|(SELECT.*FROM)|(INSERT.*INTO)|(DELETE.*FROM)|(DROP.*TABLE)|(;.*DROP)|(OR.*1=1)|(AND.*1=1)</regex>
+    <if_sid>31100</if_sid>
+    <regex type="pcre2">(\%27)|(\-\-)|(\%23)|(UNION.*SELECT)|(SELECT.*FROM)|(INSERT.*INTO)|(DELETE.*FROM)|(DROP.*TABLE)|(;.*DROP)|(OR.*1=1)|(AND.*1=1)|('.*OR.*'.*=.*')</regex>
     <description>SQL injection attempt - APT technique</description>
     <mitre>
       <id>T1190</id>
       <id>T1059.007</id>
     </mitre>
-    <group>apt,sqli,apache,</group>
+    <group>apt,sqli,apache,web,accesslog,</group>
   </rule>
 
   <rule id="100303" level="10">
