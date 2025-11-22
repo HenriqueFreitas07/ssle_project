@@ -1,263 +1,358 @@
-# Wazuh Attack Detection & Testing for Apache Server
+# SSLE Project - Wazuh Attack Detection Lab
 
-Complete setup for detecting and responding to Shellshock, DoS, and APT attacks on Apache using Wazuh.
+A complete security lab environment for detecting and responding to web attacks (Shellshock, DoS, APT) using Wazuh SIEM, deployed on a K3s cluster with Incus containers.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ssle_project/
-├── wazuh-config/
-│   ├── local_rules.xml              # 25+ custom detection rules
-│   ├── ossec.conf                   # Wazuh manager config with active response
-│   ├── agent-config.conf            # Agent config with Apache monitoring
-│   ├── ATTACK_DETECTION_SUMMARY.md  # Complete rule documentation
-│   ├── QUICK_REFERENCE.md           # Fast lookup guide
-│   └── README_TESTING.md            # Testing documentation hub
+├── docker-compose.yml              # Docker Compose for local microservices
+├── pyproject.toml                  # Python project configuration
+├── poetry.lock                     # Poetry dependency lock file
 │
-├── INCUS_TESTING_GUIDE.md           # ⭐ START HERE for Incus testing
-├── ATTACK_SIMULATION_GUIDE.md       # Comprehensive attack simulation guide
-├── TESTING_QUICK_START.md           # Generic quick start guide
+├── k8s/                            # Kubernetes manifests
+│   ├── namespace.yaml              # Namespace definition
+│   ├── configmaps.yaml             # Configuration maps
+│   ├── storage-pvc.yaml            # Persistent volume claims
+│   ├── prometheus.yaml             # Prometheus monitoring
+│   ├── grafana.yaml                # Grafana dashboards
+│   ├── registry-service.yaml       # Registry microservice
+│   ├── storage-service.yaml        # Storage microservice
+│   ├── ingestion-service.yaml      # Ingestion microservice
+│   ├── analytics-service.yaml      # Analytics microservice
+│   └── temperature-service.yaml    # Temperature sensor service
 │
-├── setup-incus-attacker.sh          # ⭐ Incus attacker container setup
-├── setup-attacker-container.sh      # Generic (Docker/K8s) setup
-└── run-attack-tests.sh              # Automated attack testing script
+├── src/ssle_project/               # Python microservices source code
+│   ├── registry_service/           # Service registry API
+│   ├── storage_service/            # Data storage service
+│   ├── ingestion_service/          # Data ingestion service
+│   ├── analytics_service/          # Data analytics service
+│   └── temperature_service/        # Temperature sensor simulator
+│
+├── wazuh-config/                   # Wazuh SIEM configuration
+│   ├── ossec.conf                  # Wazuh manager configuration
+│   ├── agent-config.conf           # Wazuh agent configuration
+│   ├── local_rules.xml             # Custom detection rules (25+)
+│   ├── action.conf                 # Active response actions
+│   ├── mpm_event.conf              # Apache MPM configuration
+│   ├── ATTACK_DETECTION_SUMMARY.md # Rule documentation
+│   └── QUICK_REFERENCE.md          # Quick lookup guide
+│
+├── tests/                          # Test files
+├── screenshots/                    # Documentation screenshots
+│
+├── setup-complete-cluster.sh       # Main setup script
+├── setup-incus-attacker.sh         # Attacker container setup
+├── run-attack-tests.sh             # Attack simulation script
+├── update_wazuh.sh                 # Wazuh config update utility
+├── incus-network-fix.sh            # Network troubleshooting
+│
+├── ATTACK_SIMULATION_GUIDE.md      # Comprehensive attack guide
+├── INCUS_TESTING_GUIDE.md          # Incus-specific testing guide
+└── LLM_REPORT_PROMPT.md            # Report generation prompt
 ```
 
 ---
 
-## 🚀 Quick Start (Incus Environment)
+## Shell Scripts
 
-### 1. Setup Attacker Container
+### setup-complete-cluster.sh
+
+The main orchestration script that builds the entire lab environment from scratch. It performs 12 automated steps:
+
+1. Configures host kernel parameters for K3s compatibility
+2. Creates an Incus profile with security settings for K3s
+3. Launches a K3s master node on Debian Trixie
+4. Creates and joins worker nodes (k3s-node1, k3s-node2)
+5. Labels nodes for workload scheduling
+6. Creates an Apache container with Wazuh agent
+7. Installs Wazuh (manager, indexer, dashboard) in a dedicated container
+8. Applies custom detection rules and ossec.conf
+9. Builds and imports Docker images into K3s nodes
+10. Deploys Prometheus and Grafana monitoring stack
+11. Deploys all microservices to the cluster
+12. Installs Wazuh agents on all worker nodes
+
+**Requires:** sudo privileges, Incus, Docker
+
+---
+
+### setup-incus-attacker.sh
+
+Creates an Ubuntu-based attacker container with pre-installed penetration testing tools. The container includes:
+
+- Network tools: curl, wget, netcat, nmap, hping3, tcpdump
+- Security scanners: nikto, sqlmap
+- Python attack tools: slowloris
+- Standard utilities: traceroute, telnet, dnsutils
+
+The script automatically detects your Apache container IP and provides quick-start commands for testing.
+
+---
+
+### run-attack-tests.sh
+
+An interactive attack simulation script with multiple test categories:
+
+| Test Type | Description |
+|-----------|-------------|
+| `shellshock` | Sends Shellshock payloads in HTTP headers |
+| `dos-light` | Moderate HTTP flood (60-100 requests) |
+| `dos-heavy` | Aggressive flood (120-250 requests) |
+| `apt-recon` | Directory scanning, vulnerability probing |
+| `apt-exploit` | SQL injection, XSS, command injection, LFI |
+| `apt-persist` | Web shell uploads, obfuscated payloads |
+| `all` | Runs all tests sequentially |
+
+**Usage:** `./run-attack-tests.sh <apache_ip> <test_type>`
+
+---
+
+### update_wazuh.sh
+
+A utility script for applying configuration changes to Wazuh without rebuilding the entire cluster. It:
+
+1. Reads local `ossec.conf` and `local_rules.xml` files
+2. Substitutes the manager IP address automatically
+3. Pushes configurations to the Wazuh container
+4. Restarts the Wazuh manager service
+5. Verifies the service is running correctly
+
+Useful for iterating on detection rules during development.
+
+---
+
+### incus-network-fix.sh
+
+Diagnoses and fixes networking issues when Docker and Incus coexist. The script:
+
+1. Checks incusbr0 bridge configuration
+2. Verifies IP forwarding is enabled
+3. Tests container connectivity to external networks
+4. Adds iptables FORWARD and NAT rules if needed
+5. Provides persistence recommendations
+
+**Requires:** sudo privileges
+
+---
+
+## Setup Tutorial
+
+### Prerequisites
+
+- Linux host (tested on Manjaro/Arch)
+- Incus container manager installed and configured
+- Docker and Docker Compose
+- At least 8GB RAM available
+- Sudo access
+
+### Step 1: Clone and Navigate
 
 ```bash
-cd /home/hfreitas07/Desktop/ssle_project
+cd ~/Desktop/ssle_project
+```
+
+### Step 2: Run the Complete Setup
+
+```bash
+sudo ./setup-complete-cluster.sh
+```
+
+This takes 10-20 minutes depending on your network speed. The script will:
+- Create all necessary containers
+- Install K3s cluster
+- Deploy Wazuh SIEM
+- Deploy monitoring stack
+- Configure attack detection rules
+
+At the end, the script outputs:
+- Wazuh Dashboard URL and credentials
+- Cluster status
+- Service endpoints
+
+### Step 3: Verify the Deployment
+
+Check all containers are running:
+
+```bash
+incus list
+```
+
+Expected containers:
+- `k3s-master` - Kubernetes master node
+- `k3s-node1`, `k3s-node2` - Worker nodes
+- `wazuh-container` - Wazuh SIEM
+- `apache-container` - Target web server
+
+Check K8s pods:
+
+```bash
+incus exec k3s-master -- k3s kubectl get pods -n ssle-project
+incus exec k3s-master -- k3s kubectl get pods -n monitoring
+```
+
+### Step 4: Access Wazuh Dashboard
+
+Open your browser and navigate to:
+
+```
+https://<wazuh-container-ip>
+```
+
+Default credentials are displayed at the end of the setup script. If you need them again:
+
+```bash
+incus exec wazuh-container -- cat wazuh-install-files/wazuh-passwords.txt
+```
+
+### Step 5: Create the Attacker Container
+
+```bash
 ./setup-incus-attacker.sh
 ```
 
-The script will:
-- Create an Incus container named `attacker`
-- Install all necessary tools
-- Auto-detect your Apache container IP
-- Show you next steps
+### Step 6: Run Your First Attack Test
 
-### 2. Run Your First Test (Shellshock)
+Get the Apache container IP:
 
 ```bash
-# Get your Apache IP from the setup script output, or:
-incus list
-
-# Run a simple Shellshock test
-incus exec attacker -- curl -H "User-Agent: () { :; }; echo test" http://<APACHE_IP>/
+incus list apache-container -c 4
 ```
 
-### 3. Verify Detection
+Run a Shellshock test:
 
 ```bash
-# On Wazuh manager, watch for alerts
-incus exec wazuh-manager -- tail -f /var/ossec/logs/alerts/alerts.log | grep "Shellshock"
-
-# On Apache container, check if IP was blocked
-incus exec <apache-container> -- iptables -L INPUT -n | grep DROP
+incus exec attacker -- curl -H "User-Agent: () { :; }; echo test" http://<apache_ip>/
 ```
 
-**Expected Result:**
-- ✅ Wazuh alert: Rule 100100, Level 15 - "Shellshock attack detected"
-- ✅ Attacker IP blocked for 30 minutes
-- ✅ Subsequent requests fail/timeout
+Monitor alerts in real-time:
+
+```bash
+incus exec wazuh-container -- tail -f /var/ossec/logs/alerts/alerts.log
+```
 
 ---
 
-## 📚 Documentation
-
-### For Testing (Choose Based on Your Environment)
-
-**Using Incus?** → Read **INCUS_TESTING_GUIDE.md** ⭐ (Recommended for you!)
-
-**Using Docker/Kubernetes?** → Read **TESTING_QUICK_START.md**
-
-**Want comprehensive details?** → Read **ATTACK_SIMULATION_GUIDE.md**
-
-### For Configuration Reference
-
-**Quick rule lookup** → **wazuh-config/QUICK_REFERENCE.md**
-
-**Complete documentation** → **wazuh-config/ATTACK_DETECTION_SUMMARY.md**
-
----
-
-## 🎯 Attack Coverage
+## Attack Detection Coverage
 
 ### Shellshock (Rules 100100-100102)
-- Detects `() { :; };` patterns in requests
+- Pattern detection in HTTP headers
 - Command execution attempts
-- Header-based exploitation
-- **Response:** 30-minute IP block
+- 30-minute IP block on detection
 
-### DoS Attacks (Rules 100200-100206, 200xxx)
-- HTTP floods: 50-250 req/s detection thresholds
-- Slowloris attacks
-- POST floods
-- SYN floods, UDP floods
-- **Response:** 5-10 minute IP blocks
+### DoS Attacks (Rules 100200-100206)
+- HTTP flood detection (50-250 req/s thresholds)
+- Slowloris attack detection
+- 5-10 minute IP blocks
 
 ### APT Attacks (Rules 100300-100312)
-- **Reconnaissance:** Directory scanning, vulnerability scanning, scanner detection
-- **Exploitation:** SQL injection, XSS, command injection, LFI
-- **Persistence:** Web shells, obfuscated payloads, repeated attacks
-- **Credential Access:** Brute force, sensitive file access
-- **Data Exfiltration:** Large data transfers
-- **Response:** 30-60 minute IP blocks
+- Reconnaissance: directory scanning, vulnerability probing
+- Exploitation: SQLi, XSS, command injection, LFI
+- Persistence: web shells, obfuscated payloads
+- 30-60 minute IP blocks
 
 ---
 
-## 🛠️ Automated Testing
-
-### Available Test Types
-
-```bash
-incus file push run-attack-tests.sh attacker/root/
-incus exec attacker -- bash /root/run-attack-tests.sh <APACHE_IP> <TEST_TYPE>
-```
-
-| Test Type | Description | Impact |
-|-----------|-------------|--------|
-| `shellshock` | Shellshock vulnerability detection | Low, 30min block |
-| `apt-recon` | Directory/vulnerability scanning | Low, no block |
-| `apt-exploit` | SQL/XSS/Command injection | Low, 30min block |
-| `apt-persist` | Web shells, obfuscation | Low, 60min block |
-| `dos-light` | 50-100 req/s HTTP flood | Medium, 5-10min block |
-| `dos-heavy` | 200+ req/s aggressive flood | High, 10min block |
-| `all` | All tests (CAUTION) | High, multiple blocks |
-
----
-
-## 📊 Example Test Session
-
-```bash
-# 1. Create attacker container
-./setup-incus-attacker.sh
-
-# 2. Find Apache IP
-incus list
-# Example output: apache-container  10.100.123.45
-
-# 3. Monitor Wazuh alerts (in another terminal)
-incus exec wazuh-manager -- tail -f /var/ossec/logs/alerts/alerts.log &
-
-# 4. Run Shellshock test
-incus exec attacker -- curl -H "User-Agent: () { :; }; echo test" http://10.100.123.45/
-
-# 5. Verify blocking
-incus exec apache-container -- iptables -L INPUT -n | grep DROP
-
-# 6. Run automated tests
-incus file push run-attack-tests.sh attacker/root/
-incus exec attacker -- bash /root/run-attack-tests.sh 10.100.123.45 apt-recon
-```
-
----
-
-## ✅ Verification Checklist
-
-- [ ] Wazuh manager running with custom rules loaded
-- [ ] Apache container running with Wazuh agent
-- [ ] Attacker container created successfully
-- [ ] Apache IP identified
-- [ ] Shellshock test triggers Rule 100100
-- [ ] Attacker IP appears in iptables DROP rules
-- [ ] Alerts visible in Wazuh dashboard
-- [ ] Active responses logged
-
----
-
-## 🔧 Common Incus Commands
+## Common Commands
 
 ```bash
 # List all containers
 incus list
 
-# Access container
+# Access a container shell
 incus exec <container-name> -- bash
 
-# Copy files to container
-incus file push local-file.txt container-name/path/
+# View Wazuh alerts
+incus exec wazuh-container -- tail -f /var/ossec/logs/alerts/alerts.log
 
-# Copy files from container
-incus file pull container-name/path/file.txt ./
+# Check agent status
+incus exec wazuh-container -- /var/ossec/bin/agent_control -l
 
-# Stop/start container
-incus stop <container-name>
-incus start <container-name>
+# View blocked IPs on Apache
+incus exec apache-container -- iptables -L INPUT -n | grep DROP
 
-# Delete container
-incus delete <container-name>
+# Unblock an IP
+incus exec apache-container -- iptables -D INPUT -s <ip> -j DROP
+
+# Update Wazuh config after changes
+./update_wazuh.sh
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Cleanup
 
-### No alerts appearing?
+Stop and remove the attacker container:
+
 ```bash
-# Check Wazuh manager
-incus exec wazuh-manager -- systemctl status wazuh-manager
-incus exec wazuh-manager -- /var/ossec/bin/agent_control -l
+incus stop attacker && incus delete attacker
 ```
 
-### No IP blocking?
-```bash
-# Check active-response logs
-incus exec wazuh-manager -- tail -f /var/ossec/logs/active-responses.log
-
-# Check iptables on Apache
-incus exec <apache-container> -- iptables -L -n -v
-```
-
-### Already blocked?
-```bash
-# Clear IP block
-incus exec <apache-container> -- iptables -D INPUT -s <attacker-ip> -j DROP
-```
-
-More troubleshooting: See **INCUS_TESTING_GUIDE.md**
-
----
-
-## 🧹 Cleanup
+Remove the entire lab (warning: destroys all data):
 
 ```bash
-# Remove attacker container
-incus stop attacker
-incus delete attacker
-
-# Clear IP blocks
-incus exec <apache-container> -- iptables -F INPUT
+incus stop --all
+incus delete k3s-master k3s-node1 k3s-node2 wazuh-container apache-container
 ```
 
 ---
 
-## ⚠️ Important Warnings
+## Troubleshooting
 
-- **Only test systems you own or have explicit authorization to test**
+### Network Issues
+
+If containers cannot reach external networks:
+
+```bash
+sudo ./incus-network-fix.sh
+```
+
+### Wazuh Not Detecting Attacks
+
+1. Verify the agent is connected:
+   ```bash
+   incus exec wazuh-container -- /var/ossec/bin/agent_control -l
+   ```
+
+2. Check rules are loaded:
+   ```bash
+   incus exec wazuh-container -- cat /var/ossec/etc/rules/local_rules.xml
+   ```
+
+3. Test rule parsing:
+   ```bash
+   incus exec wazuh-container -- /var/ossec/bin/wazuh-logtest
+   ```
+
+### IP Already Blocked
+
+If you blocked yourself during testing:
+
+```bash
+incus exec apache-container -- iptables -F INPUT
+```
+
+---
+
+## Additional Documentation
+
+- `INCUS_TESTING_GUIDE.md` - Detailed Incus testing procedures
+- `ATTACK_SIMULATION_GUIDE.md` - Comprehensive attack documentation
+- `wazuh-config/QUICK_REFERENCE.md` - Rule quick reference
+- `wazuh-config/ATTACK_DETECTION_SUMMARY.md` - Full rule documentation
+
+---
+
+## Warnings
+
+- Only test on systems you own or have explicit authorization to test
 - DoS tests can impact service availability
-- IP blocks can last 5-60 minutes
-- Don't run all tests simultaneously
-- Monitor resources during heavy tests
+- IP blocks last 5-60 minutes depending on attack severity
+- Monitor system resources during heavy tests
 
 ---
 
-## 📖 Additional Resources
-
-- **Incus Testing Guide:** INCUS_TESTING_GUIDE.md
-- **Attack Simulation:** ATTACK_SIMULATION_GUIDE.md  
-- **Rule Reference:** wazuh-config/QUICK_REFERENCE.md
-- **Full Documentation:** wazuh-config/ATTACK_DETECTION_SUMMARY.md
-
----
-
-**Created:** 2025-11-19  
-**Environment:** Incus containers  
-**Wazuh Version:** 4.x  
-**Apache Version:** 2.4
+**Environment:** Incus containers, K3s, Wazuh 4.x, Apache 2.4
+**Last Updated:** 2025-11-22
